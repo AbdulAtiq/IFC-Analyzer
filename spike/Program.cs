@@ -367,6 +367,33 @@ using (var transaktion = testModell.BeginTransaction("IFC4-Testdaten Schritt 9")
     });
 }
 
+Console.WriteLine();
+Console.WriteLine("=== Schritt 10 — SetProperty(pset, name, wert): Wert in bestehende Eigenschaft schreiben ===");
+
+// Zielattribut: "PVI_SCHICHTSTAERKE" im PSet "ProVI" (#63) an Element #60 —
+// laut Schritt 5 aktuell 0 [IfcReal]. Wir schreiben einen neuen
+// IfcReal-Wert hinein (gleicher Typ bleibt gleich — die eigentliche
+// Typ-Frage kommt erst in Schritt 13). NominalValue lässt sich nicht
+// "in-place" ändern, sondern nur komplett neu zuweisen — ein neuer
+// IfcReal-Werttyp (struct, kein Entity, daher kein Instances.New<T> nötig).
+var psetProVI = element60.IsDefinedBy
+    .Select(r => r.RelatingPropertyDefinition).OfType<IIfcPropertySet>()
+    .First(p => p.Name == "ProVI");
+var eigenschaft = (Xbim.Ifc2x3.PropertyResource.IfcPropertySingleValue)
+    psetProVI.HasProperties.OfType<IIfcPropertySingleValue>().First(p => p.Name == "PVI_SCHICHTSTAERKE");
+
+Console.WriteLine($"  Vorher: {eigenschaft.Name} = {eigenschaft.NominalValue?.Value} [{eigenschaft.NominalValue?.GetType().Name}]");
+
+Messen("10. SetProperty (PVI_SCHICHTSTAERKE = 3.5)", () =>
+{
+    using var transaktion = modell.BeginTransaction("Schritt 10: SetProperty");
+    eigenschaft.NominalValue = new Xbim.Ifc2x3.MeasureResource.IfcReal(3.5);
+    transaktion.Commit();
+    return true;
+});
+
+Console.WriteLine($"  Nachher: {eigenschaft.Name} = {eigenschaft.NominalValue?.Value} [{eigenschaft.NominalValue?.GetType().Name}]");
+
 modell.Dispose();
 
 // ----------------------------------------------------------------------
