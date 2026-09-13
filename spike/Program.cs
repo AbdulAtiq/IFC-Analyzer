@@ -173,6 +173,37 @@ Console.WriteLine($"  6 IfcBuildingElement hängen, sondern z. B. am IfcProject"
 Console.WriteLine($"  (ePSet_ProjectedCRS, ePSet_MapConversion) — genau der Fall, für den");
 Console.WriteLine($"  GetAllPropertySets() laut Abstraktion existiert.");
 
+Console.WriteLine();
+Console.WriteLine("=== Schritt 7 — GetOwnerInfo() aus IfcOwnerHistory ===");
+
+// Die Abstraktion verlangt "Unbekannt" statt einer Ausnahme, wenn Angaben
+// fehlen (abhängig vom Exporter). Hier probeweise robust gegen fehlende
+// Person/Organisation/Application geschrieben.
+Messen("7. GetOwnerInfo()", () =>
+{
+    var ownerHistory = modell.Instances.OfType<IIfcOwnerHistory>().FirstOrDefault();
+    if (ownerHistory is null)
+    {
+        Console.WriteLine("  Keine IfcOwnerHistory im Modell -> Unbekannt/Unbekannt.");
+        return ("Unbekannt", "Unbekannt");
+    }
+
+    var person = ownerHistory.OwningUser?.ThePerson;
+    var organisation = ownerHistory.OwningUser?.TheOrganization;
+    string ersteller = person is not null && (person.GivenName.HasValue || person.FamilyName.HasValue)
+        ? $"{person.GivenName} {person.FamilyName}".Trim()
+        : organisation?.Name.ToString() ?? "Unbekannt";
+
+    var anwendung = ownerHistory.OwningApplication;
+    string software = anwendung is not null
+        ? $"{anwendung.ApplicationFullName} {anwendung.Version} ({anwendung.ApplicationDeveloper?.Name})"
+        : "Unbekannt";
+
+    Console.WriteLine($"  Ersteller           : {ersteller}");
+    Console.WriteLine($"  Verwendete Software : {software}");
+    return (ersteller, software);
+});
+
 modell.Dispose();
 
 // ----------------------------------------------------------------------
