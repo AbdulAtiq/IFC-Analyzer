@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Xbim.Common;
 using Xbim.Ifc;
+using Xbim.Ifc4.Interfaces;
 
 // ============================================================================
 // xBIM-Spike (Phase 1) — Wegwerfcode zur Bibliotheksauswahl.
@@ -43,6 +44,30 @@ foreach (var klasse in new[] { "IfcProduct", "IfcObject", "IfcBuildingElement", 
         () => modell.Instances.OfType(klasse, activate: true).ToList());
     Console.WriteLine($"  Treffer: {elemente?.Count ?? 0}");
 }
+
+Console.WriteLine();
+Console.WriteLine("=== Schritt 3 — GetElementByGuid(globalId) ===");
+
+// WICHTIG (Erkenntnis aus der Reflexion vorab): xBIMs Ifc2x3-Klassen
+// implementieren dieselben Interfaces wie Ifc4 (Namespace
+// "Xbim.Ifc4.Interfaces"). Das ist der Mechanismus, der Schema-Unabhängigkeit
+// im Code ermöglicht: IIfcRoot, IIfcProduct, IIfcElement usw. gelten für
+// BEIDE Schemas, ohne Fallunterscheidung. GlobalId ist vom Typ
+// IfcGloballyUniqueId (kein reiner string) — Vergleich über ToString().
+const string vorhandeneGuid = "2bkq4to1n7zOPW8LrQtFDY";
+const string unbekannteGuid = "DIESE_GUID_GIBT_ES_NICHT";
+
+var gefunden = Messen("3. GetElementByGuid (vorhanden)",
+    () => modell.Instances.OfType<IIfcRoot>().FirstOrDefault(r => r.GlobalId.ToString() == vorhandeneGuid));
+Console.WriteLine(gefunden is not null
+    ? $"  Gefunden: #{gefunden.EntityLabel} {gefunden.GetType().Name}"
+    : "  NICHT gefunden (unerwartet!)");
+
+var nichtGefunden = Messen("3. GetElementByGuid (unbekannt)",
+    () => modell.Instances.OfType<IIfcRoot>().FirstOrDefault(r => r.GlobalId.ToString() == unbekannteGuid));
+Console.WriteLine(nichtGefunden is null
+    ? "  Erwartungsgemäß null (keine Ausnahme) — entspricht der Anforderung an GetElementByGuid."
+    : "  UNERWARTET: Element gefunden.");
 
 modell.Dispose();
 
