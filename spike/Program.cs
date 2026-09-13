@@ -69,6 +69,27 @@ Console.WriteLine(nichtGefunden is null
     ? "  Erwartungsgemäß null (keine Ausnahme) — entspricht der Anforderung an GetElementByGuid."
     : "  UNERWARTET: Element gefunden.");
 
+Console.WriteLine();
+Console.WriteLine("=== Schritt 4 — Je Element: Id, IfcClass, GlobalId, Name, ObjectType ===");
+
+// IIfcElement (aus Xbim.Ifc4.Interfaces) bringt alle fünf Werte mit.
+// Id kommt nicht aus IIfcElement selbst, sondern aus IPersistEntity.EntityLabel
+// (jede Entity in jedem xBIM-Modell hat das). ObjectType sitzt auf IIfcObject,
+// von dem IIfcElement erbt.
+var elementeSchritt4 = Messen("4. Elemente einlesen (IfcBuildingElement)",
+    () => modell.Instances.OfType<IIfcBuildingElement>().ToList());
+
+foreach (var element in elementeSchritt4 ?? Enumerable.Empty<IIfcBuildingElement>())
+{
+    // Name/ObjectType sind IfcLabel? (Nullable<T> um einen IFC-Werttyp).
+    // Bei fehlendem Wert liefert die String-Interpolation stillschweigend
+    // "" statt "null" — deshalb hier explizit HasValue geprüft, damit
+    // "leerer Text" nicht mit "gar nicht gesetzt" verwechselt wird.
+    string objektTyp = element.ObjectType.HasValue ? $"\"{element.ObjectType}\"" : "(nicht gesetzt)";
+    Console.WriteLine($"  Id={element.EntityLabel,-6} IfcClass={element.GetType().Name,-28} " +
+                       $"GlobalId={element.GlobalId,-24} Name=\"{element.Name}\" ObjectType={objektTyp}");
+}
+
 modell.Dispose();
 
 // ----------------------------------------------------------------------
