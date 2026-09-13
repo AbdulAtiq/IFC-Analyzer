@@ -90,6 +90,73 @@ foreach (var element in elementeSchritt4 ?? Enumerable.Empty<IIfcBuildingElement
                        $"GlobalId={element.GlobalId,-24} Name=\"{element.Name}\" ObjectType={objektTyp}");
 }
 
+Console.WriteLine();
+Console.WriteLine("=== Schritt 5 — PropertySets je Element (inkl. Mengensätzen) ===");
+
+// Kein fertiges "element.PropertySets" in xBIM — der Weg führt über die
+// Beziehung IsDefinedBy (IfcRelDefinesByProperties). Deren
+// RelatingPropertyDefinition ist entweder ein IIfcPropertySet (Attribute)
+// oder ein IIfcElementQuantity (Mengensatz) — beide erben von
+// IIfcPropertySetDefinition. Die Beispieldatei enthält KEINE
+// IfcElementQuantity (0 Mengensätze im Modell, siehe Voranalyse) — der
+// Mengensatz-Zweig ist deshalb nur "kalt" mitgetestet, siehe Hinweis unten.
+Messen("5. PropertySets aller 6 Elemente lesen", () =>
+{
+    int anzahlPsets = 0, anzahlQsets = 0;
+    foreach (var element in elementeSchritt4 ?? Enumerable.Empty<IIfcBuildingElement>())
+    {
+        Console.WriteLine($"  Element #{element.EntityLabel} ({element.GetType().Name}):");
+        foreach (var rel in element.IsDefinedBy)
+        {
+            switch (rel.RelatingPropertyDefinition)
+            {
+                case IIfcPropertySet pset:
+                    anzahlPsets++;
+                    Console.WriteLine($"    PSet \"{pset.Name}\" (#{pset.EntityLabel}):");
+                    foreach (var prop in pset.HasProperties)
+                    {
+                        if (prop is IIfcPropertySingleValue wert)
+                        {
+                            var nominal = wert.NominalValue;
+                            string typName = nominal?.GetType().Name ?? "(kein Wert)";
+                            Console.WriteLine($"      {prop.Name} = {nominal?.Value} [{typName}]");
+                        }
+                        else
+                        {
+                            Console.WriteLine($"      {prop.Name} = (Property-Typ {prop.GetType().Name} nicht ausgewertet — kein IfcPropertySingleValue)");
+                        }
+                    }
+                    break;
+
+                case IIfcElementQuantity qset:
+                    anzahlQsets++;
+                    Console.WriteLine($"    QSet (Mengensatz) \"{qset.Name}\" (#{qset.EntityLabel}):");
+                    foreach (var menge in qset.Quantities)
+                        Console.WriteLine($"      {menge.Name} [{menge.GetType().Name}]");
+                    break;
+
+                default:
+                    Console.WriteLine($"    Unbekannter RelatingPropertyDefinition-Typ: {rel.RelatingPropertyDefinition?.GetType().Name}");
+                    break;
+            }
+        }
+    }
+    Console.WriteLine($"  Insgesamt: {anzahlPsets} PropertySets, {anzahlQsets} Mengensätze (Quantity-Sets).");
+    return anzahlPsets;
+});
+
+if (elementeSchritt4 is not null && elementeSchritt4.Count == 0)
+{
+    Console.WriteLine("  Hinweis: keine Elemente vorhanden — Schritt übersprungen.");
+}
+Console.WriteLine();
+Console.WriteLine("  HINWEIS zu Mengensätzen: Die Beispieldatei enthält keine einzige");
+Console.WriteLine("  IfcElementQuantity. Der QSet-Zweig oben ist damit real durchlaufen,");
+Console.WriteLine("  aber nie mit echten Daten ausgeführt worden. Wird bei Schritt 9");
+Console.WriteLine("  (Einheitensymbol von Mengen) erneut relevant — dort baue ich, wie");
+Console.WriteLine("  angekündigt, eine IfcElementQuantity per xBIM-API synthetisch nach,");
+Console.WriteLine("  um den Lesepfad trotzdem an echtem xBIM-Verhalten zu zeigen.");
+
 modell.Dispose();
 
 // ----------------------------------------------------------------------
