@@ -53,6 +53,13 @@ zehntausend Elemente) sollte vor einer endgültigen Entscheidung ein
 zweiter Lasttest mit einer realistisch großen Projektdatei erfolgen —
 die aktuelle Beispieldatei ist mit 6 Elementen dafür zu klein.
 
+**Nachtrag:** Dieser zweite Lasttest wurde durchgeführt, siehe Abschnitt 7.
+Ergebnis in Kürze: Die Größenordnung des hier verfügbaren realen Modells
+(730 Elemente statt 6) bestätigt den obigen Befund und liefert erstmals
+echte Zahlen jenseits von "die API-Form funktioniert" — siehe dort für
+die vollständige Einordnung und die verbleibenden Unsicherheiten bei noch
+größeren Modellen.
+
 ## 3. Version und Lizenz
 
 - **Xbim.Essentials, aktuelle Version: 6.1.605** (NuGet, veröffentlicht
@@ -140,11 +147,20 @@ Ein Wechsel wäre nicht durch die Spike-Ergebnisse gerechtfertigt.
    Zusatzaufwand ein linearer Scan. Bei großen Modellen mit vielen
    Einzel-Lookups (z. B. Revit-Round-Trip-Matching über tausende
    Elemente) muss die Implementierung selbst cachen.
-5. **Ungetestet in diesem Spike: Verhalten bei wirklich großen Modellen.**
-   Die Beispieldatei hat nur 6 Elemente. Speicher- und Laufzeitverhalten
-   bei Modellen mit zehntausenden Elementen und P-Sets (der eigentliche
-   Praxisfall der Anwendung) ist auf Basis dieses Spikes **nicht**
-   verlässlich abschätzbar — nur, dass die API-Form funktioniert.
+5. **Verhalten bei größeren Modellen — jetzt mit echten Zahlen (siehe
+   Abschnitt 7).** Ein Lasttest mit einer realen Projektdatei (IFC4X3,
+   3,75 MB, 730 `IfcProduct`, 2386 `IfcPropertySet`, ~120× mehr Elemente
+   als die 6-Elemente-Beispieldatei) zeigt: `Open()` bleibt bei ~1,2–1,4 s,
+   Prozess-Spitzenwert bei ~136 MB, der komplette P-Set-Scan über alle
+   Elemente bei unter einer Sekunde. Speicher und Laufzeit skalieren dabei
+   auffällig **unterproportional** zur Elementzahl — der Großteil des
+   Overheads ist fixer Startkosten (Assembly-Laden, Schema-Metadaten), nicht
+   linear pro Element. Details, Hochrechnung auf ein hypothetisches
+   300-MB-Modell und die verbleibende Unsicherheit (die getestete Datei ist
+   immer noch ~80× kleiner als ein 300-MB-Modell und weit von
+   "zehntausenden Elementen" entfernt) siehe Abschnitt 7. Das Risiko ist
+   damit für die getestete Größenordnung entkräftet, für echte
+   Großmodelle aber nur durch Hochrechnung, nicht durch Messung, geklärt.
 6. **Lizenz-Copyleft auf Dateiebene.** CDDL verlangt, dass Änderungen an
    den xBIM-Quelldateien selbst offengelegt werden, falls die geänderte
    Datei weitergegeben wird. Solange xBIM nur als unveränderte
@@ -179,3 +195,183 @@ falls angegeben) — das geht über die reine EXPRESS-Schema-Konformität von
 ifcopenshell hinaus. Da das Hochladen der Datei an einen Drittanbieter-Dienst
 geht, wurde das hier bewusst nicht automatisch gemacht — bei Bedarf einfach
 `spike/data/ausgabe.ifc` dort hochladen.
+
+## 7. Lasttest mit realer Projektdatei (Nachtrag)
+
+Auftrag: Risiko Nr. 5 nachholen — Speicher- und Laufzeitverhalten bei einer
+größeren, echten Projektdatei statt der 6-Elemente-Beispieldatei messen.
+Verfügbar war eine reale Infrastruktur-Projektdatei (IFC4X3, personenbezogene
+und firmenspezifische Angaben aus dem Header hier bewusst nicht
+wiedergegeben); sie ist nicht Teil dieses Repositories, da es sich um echte,
+nicht-anonymisierte Projektdaten Dritter handelt.
+
+### Vorgehen
+
+**Nicht** wortwörtlich `spike/Program.cs` unverändert durchlaufen lassen —
+das war technisch gar nicht möglich, ohne die eigentliche Fragestellung
+(Skalierung) zu verfehlen: Die Schritte 3, 4 und 7–13 dieses Programms
+referenzieren feste, an die 6-Elemente-Beispieldatei gebundene Werte (eine
+konkrete GlobalId, Entity-Label `60`, PSet-Namen wie `"ProVI"` und
+`"Stammdaten Verkehrsanlage"`) und legen in Schritt 9 sogar hartkodiert
+`Xbim.Ifc2x3.*`-Klassen an. Die neue Datei hat ein anderes Schema
+(IFC4X3 statt IFC2X3) — ein `Instances.New<Xbim.Ifc2x3....>()` auf einem
+IFC4X3-Modell bricht mit `"This factory only creates types from its
+assembly"` ab (siehe Risiko Nr. 1), und zwar *vor* Schritt 14 (Save), dessen
+Zahlen hier aber gerade gebraucht werden. Ein wörtlicher Lauf hätte also nicht
+mehr Erkenntnis geliefert, sondern nur einen für die Fragestellung irrelevanten
+Absturz vor der eigentlichen Messung.
+
+Stattdessen: ein zweites, separates Konsolenprogramm
+(`spike/Lasttest/Program.cs`), das **exakt dieselbe `Messen()`-Hilfsfunktion
+und exakt dieselben xBIM-Aufrufe** wie `spike/Program.cs` für die laut
+Aufgabenstellung relevanten Schritte 1, 2, 5, 6 und 14 verwendet — nur
+parametrisiert auf einen beliebigen Dateipfad statt der hartkodierten
+Beispieldatei, und in Schritt 2/5 verallgemeinert von `IfcBuildingElement`
+(Hochbau-spezifisch) auf zusätzlich `IIfcElement` (schema- und
+domänenunabhängig), damit "über alle Elemente" wörtlich stimmt. Kein neuer
+Ansatz, keine Optimierung — dieselbe Technik, nur nicht an die
+Beispieldatei gebundene Werte entfernt. Die Schreiboperationen 10–13 wurden
+wie in der Aufgabenstellung vorgesehen nicht wiederholt.
+
+Drei Läufe (`dotnet run -c Release`, kein Warmup zwischen den Läufen,
+derselbe Prozess-Neustart wie im Ursprungsspike) auf einer Kopie der Datei
+(nie auf dem Original gearbeitet).
+
+### Eckdaten der Testdatei
+
+| Kennzahl | Wert |
+|---|---|
+| Dateigröße | 3,75 MB (3.930.740 Bytes) |
+| Schema | IFC4X3_ADD2 (von xBIM erkannt als `Ifc4x3`) |
+| `IfcProduct` (inkl. Unterklassen) | 730 |
+| `IfcElement` (Basis für Schritt 5) | 724 |
+| `IfcPropertySet` | 2386 |
+| `IfcElementQuantity` (Mengensätze) | 714 |
+| Attribut-Werte über alle P-Sets (`HasProperties`) | 9086 |
+| Verhältnis zur Beispieldatei | ~6,5× Dateigröße, ~120× Elementzahl |
+
+### Messwerte (Mittel über 3 Läufe, Bereich in Klammern)
+
+| Schritt | Laufzeit | Prozess-Spitzenwert (Working Set) |
+|---|---|---|
+| 1. Open | ~1241 ms (1199–1282 ms) | ~109 MB (107,3–112,5 MB) |
+| 2. GetElementsByType("IfcProduct") | 2–3 ms | unverändert |
+| 2. GetElementsByType("IfcObject") | 0 ms | unverändert |
+| 2. GetElementsByType("IfcBuildingElement") | **Ausnahme, siehe Fund unten** | — |
+| 2b. GetElementsByType&lt;IIfcBuildingElement&gt;() (generisch) | 0 ms, 724 Treffer | unverändert |
+| 5. PropertySets aller 724 Elemente | ~579 ms (495–703 ms) | ~134 MB (133,1–133,9 MB) |
+| 6. GetAllPropertySets() (2386 Treffer) | 0 ms | unverändert |
+| 14. Save (ohne vorherige Änderung) | ~394 ms (308–452 ms) | ~135 MB (134,2–134,7 MB) |
+| **Prozess-Gesamt-Spitzenwert** | — | **~136 MB (135,7–136,7 MB)** |
+
+Schritt 5 pro 1.000 Elemente: 686–975 ms (Mittel ~802 ms) — die geforderte
+Hochrechnungsgrundlage.
+
+### Zusätzlicher Fund (nicht Teil der ursprünglichen 14 Schritte)
+
+Der **String-basierte** Weg aus Schritt 2 —
+`Instances.OfType("IfcBuildingElement", true)` — wirft auf dieser IFC4X3-Datei
+eine `ArgumentException` ("StringType must be a name of the existing persist
+entity type"). Grund: In IFC4X3 wurde die EXPRESS-Entity `IfcBuildingElement`
+aus der Schema-Hierarchie entfernt (Elemente wie `IfcWall` erben jetzt direkt
+von `IfcElement`) — sie taucht in der Metadaten-Typtabelle des Modells schlicht
+nicht mehr auf. Der **generische, stark typisierte** Weg
+(`Instances.OfType<IIfcBuildingElement>()`) funktioniert dagegen unverändert
+(724 Treffer), weil xBIMs schemaübergreifendes Interface `IIfcBuildingElement`
+unabhängig vom tatsächlichen EXPRESS-Namen im jeweiligen Schema besteht.
+**Konsequenz für eine produktive Implementierung:** Eine `GetElementsByType`,
+die Klassennamen als freien String entgegennimmt (statt generischer Typen),
+ist nicht über alle IFC-Schemaversionen hinweg stabil für Oberklassen, die
+zwischen Versionen umstrukturiert wurden — das betrifft nicht nur
+`IfcBuildingElement`, sondern jede vergleichbare Schema-Änderung zwischen
+IFC2X3/IFC4/IFC4X3. Muss defensiv behandelt werden (bekannte Aliasse/Fallback
+auf die generische Schnittstelle), sonst bricht die Abfrage schemaabhängig.
+
+### Vergleich klein → groß
+
+| | Beispieldatei | Projektdatei (dieser Lasttest) | Faktor |
+|---|---|---|---|
+| Dateigröße | 0,58 MB | 3,75 MB | ~6,5× |
+| Elemente (`IfcProduct`/`IfcBuildingElement`) | 6 | 730 / 724 | ~120× |
+| Open(): Laufzeit | 540–1200 ms | 1199–1282 ms | **kaum verändert** |
+| Open(): Speicher-Spitzenwert | ~57–63 MB (Delta) | ~75–80 MB (Delta) | **nur ~+30 %** |
+| P-Set-Scan (Schritt 5/6) | 0–21 ms (6 Elemente) | 495–703 ms (724 Elemente) | ~30–70× |
+
+Auffällig: Sowohl Laufzeit als auch Speicherverbrauch von `Open()` wachsen bei
+120-facher Elementzahl nur um niedrige zweistellige Prozentsätze — der
+Großteil des Overheads ist offensichtlich fixer Startkosten (Laden und JIT der
+xBIM-Assemblies, Aufbau der EXPRESS-Schema-Metadatentabellen für alle
+IFC4X3-Entitätstypen), nicht linear pro Element oder Byte. Nur der eigentliche
+P-Set-Scan (Schritt 5), der pro Element tatsächlich Arbeit leistet, wächst
+näherungsweise proportional zur Elementzahl.
+
+### Die drei Fragen
+
+**1. Bleibt die Anwendung bedienbar?**
+Ja, bei dieser Dateigröße eindeutig: Open() ~1,2–1,4 s, P-Set-Scan über alle
+724 Elemente unter einer Sekunde, Save ~0,3–0,45 s — der komplette
+Testlauf liegt bei rund 2,5 Sekunden Gesamtlaufzeit. Für den in der
+Aufgabenstellung genannten Maßstab ("Open() eine Minute" verkraftbar,
+"P-Set-Scan bei jedem Dialogöffnen zwei Minuten" nicht) ist das nicht
+ansatzweise ein Problem. Hochgerechnet mit der gemessenen Rate von
+~802 ms/1.000 Elemente (Schritt 5) läge ein 10.000-Elemente-Modell bei
+grob 8 s, ein 50.000-Elemente-Modell bei grob 40 s für einen vollständigen
+Scan aller Elemente — beides mit dem vorhandenen Fortschrittsbalken plus
+Abbrechen-Möglichkeit verkraftbar, **aber**: Das gilt nur für einen
+*einmaligen* Scan pro Öffnen der Datei. Wird der P-Set-Scan (wie in Risiko
+Nr. 4 für `GetElementByGuid` beschrieben) naiv bei *jedem* Dialogöffnen
+erneut über alle Elemente laufen gelassen statt das Ergebnis zu cachen,
+kippt genau dieses Verhalten bei 10.000+ Elementen in den in der
+Aufgabenstellung explizit benannten Problemfall. Empfehlung unverändert aus
+Risiko Nr. 4/5: Implementierung muss cachen, nicht bei jedem Zugriff neu
+scannen.
+
+**2. Reicht der Speicher?**
+Bei dieser Dateigröße (3,75 MB) ja, ohne jede Einschränkung: ~136 MB
+Prozess-Spitzenwert läuft auf jedem Rechner, der überhaupt eine
+IFC-Anwendung startet, unproblematisch mit. Für die in der Aufgabenstellung
+konkret genannte Sorge — ein 300-MB-Modell — liefert dieser Lasttest **keine
+Messung, sondern nur eine Hochrechnung**, und die muss klar als solche
+gekennzeichnet werden: Die getestete Datei ist mit 3,75 MB immer noch rund
+80× kleiner als ein 300-MB-Modell, und mit 730 Elementen weit von den in
+der ursprünglichen Einschätzung befürchteten "zehntausenden Elementen"
+entfernt. Rechne ich den beobachteten Speicher-Overhead oberhalb der
+Baseline (~104 MB oberhalb der ~32 MB Prozessstart-Grundlast) linear mit
+der Dateigröße hoch, ergäbe das für ein 300-MB-Modell rund **8 GB**
+zusätzlich zur Grundlast — auf einem normalen 8–16-GB-Arbeitsplatzrechner,
+auf dem parallel weitere Anwendungen laufen, wäre das tatsächlich ein
+Problem. Diese Hochrechnung ist aber auf Basis von genau einem Messpunkt
+weit außerhalb des getesteten Bereichs gemacht (Faktor 80×) und mit
+erheblicher Unsicherheit behaftet: Der beobachtete Sprung von 6 auf 730
+Elemente zeigte gerade *unterproportionales* Wachstum, weil Fixkosten
+dominierten — ob sich das bei 300 MB fortsetzt (dann deutlich weniger als
+8 GB) oder ob geometrielastige Großmodelle stattdessen überproportional
+wachsen (dann mehr), ist mit den hier vorliegenden Daten **nicht**
+entscheidbar. Ehrliches Fazit: Die Speicherfrage ist für Modelle bis
+mindestens ~750 Elemente/~4 MB geklärt und unproblematisch — für echte
+Großmodelle (zehntausende Elemente, hunderte MB) bleibt sie ohne eine
+tatsächlich so große Testdatei offen.
+
+**3. Ändert sich die Empfehlung aus `EINSCHAETZUNG.md`?**
+Nein, die Empfehlung (xBIM Essentials weiterverwenden) bleibt unverändert
+— dieser Lasttest liefert ausschließlich zusätzliche Bestätigung, keinen
+Gegenbeweis. Risiko Nr. 5 ist oben mit den tatsächlichen Zahlen aktualisiert
+statt offen gelassen. Ergänzend zwei neue, konkrete Punkte für die
+Implementierung: (a) der oben beschriebene Fund zu
+`Instances.OfType(string, bool)` bei schemaübergreifend umstrukturierten
+Oberklassen (neues Detail zu Risiko Nr. 1) und (b) die unter Frage 2
+offen gebliebene Speicher-Hochrechnung für echte Großmodelle — sollte die
+Anwendung real mit Modellen im dreistelligen MB-Bereich rechnen müssen,
+empfiehlt sich vor dem endgültigen produktiven Commit ein dritter Lasttest
+mit einer tatsächlich so großen Datei, oder ersatzweise eine Prüfung von
+`Xbim.IO.Esent` (Datenbank-gestützter statt In-Memory-Modell-Store) als
+Fallback für sehr große Modelle, falls verfügbar.
+
+### Reproduzierbarkeit
+
+Code: `spike/Lasttest/` (eigenes Projekt, referenziert dieselbe
+`Xbim.Essentials`-Version 6.1.605 wie der Ursprungsspike). Aufruf:
+`dotnet run -c Release --project spike/Lasttest -- <pfad-zur-ifc-datei>`.
+Die verwendete Projektdatei ist nicht Teil dieses Repositories (siehe oben);
+jede andere ausreichend große, reale IFC-Datei liefert vergleichbare
+Diagnosewerte.
