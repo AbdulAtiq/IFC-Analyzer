@@ -247,7 +247,173 @@ Messen("8. GetProjectUnits()", () =>
     return ergebnis;
 });
 
+Console.WriteLine();
+Console.WriteLine("=== Schritt 9 — GetQuantityUnitSymbol(element, pset, attribut) ===");
+Console.WriteLine("Die Beispieldatei hat weder IfcElementQuantity noch IfcConversionBasedUnit.");
+Console.WriteLine("Wie angekündigt: Lesepfad an echten, aber SELBST ANGELEGTEN Testdaten zeigen.");
+Console.WriteLine();
+
+// ------------------------------------------------------------------
+// Testfall A: reale Datei (IFC2X3), Mengensatz per Transaktion angelegt.
+//
+// STOLPERSTELLE (echter Fund, nicht nur theoretisch): Ein erster Versuch
+// mit den Xbim.Ifc4.*-Klassen ist zur Laufzeit mit
+// "This factory only creates types from its assembly" gescheitert. Der
+// Grund: Die gemeinsamen Interfaces (Xbim.Ifc4.Interfaces) sind NUR zum
+// LESEN schemaübergreifend nutzbar. Zum SCHREIBEN (Instances.New<T>())
+// verlangt jedes Modell zwingend die zu seinem EIGENEN Schema passende
+// konkrete Klasse — ein IFC2X3-Modell akzeptiert nur Xbim.Ifc2x3.*-Typen,
+// nicht Xbim.Ifc4.*. Für AddPropertySet (Schritt 11) heißt das: Die
+// Implementierung braucht zwingend eine Fallunterscheidung nach
+// modell.SchemaVersion, wenn sie neue Entities anlegt.
+//
+// WICHTIG (fachlich): IfcQuantityLength/-Area/-Volume haben in IFC2X3
+// GAR KEIN eigenes "Unit"-Attribut (das kam erst mit IFC4) — die Einheit
+// einer Menge ergibt sich in IFC2X3 IMMER aus der projektweiten
+// IfcUnitAssignment. Das gemeinsame Cross-Schema-Interface
+// IIfcQuantityLength (Xbim.Ifc4.Interfaces) spiegelt das exakt: Es hat
+// KEIN Unit-Property (siehe Reflexion vorab) — nur die konkrete
+// Ifc4-Klasse hat es zusätzlich.
+// ------------------------------------------------------------------
+var element60 = modell.Instances.OfType<IIfcBuildingElement>().First(e => e.EntityLabel == 60);
+using (var transaktion = modell.BeginTransaction("Testdaten für Schritt 9"))
+{
+    var mengensatz = modell.Instances.New<Xbim.Ifc2x3.ProductExtension.IfcElementQuantity>(q =>
+    {
+        q.Name = "Testmengen_Schritt9";
+        q.Quantities.Add(modell.Instances.New<Xbim.Ifc2x3.QuantityResource.IfcQuantityLength>(
+            l => { l.Name = "Laenge"; l.LengthValue = 5.0; }));
+        q.Quantities.Add(modell.Instances.New<Xbim.Ifc2x3.QuantityResource.IfcQuantityArea>(
+            a => { a.Name = "Flaeche"; a.AreaValue = 12.5; }));
+    });
+    modell.Instances.New<Xbim.Ifc2x3.Kernel.IfcRelDefinesByProperties>(rel =>
+    {
+        rel.RelatingPropertyDefinition = mengensatz;
+        rel.RelatedObjects.Add((Xbim.Ifc2x3.Kernel.IfcObject)element60);
+    });
+    transaktion.Commit();
+}
+
+var projektEinheiten = modell.Instances.OfType<IIfcUnitAssignment>().First();
+
+Messen("9a. GetQuantityUnitSymbol (IFC2X3, ohne eigene Unit -> Projekt-Einheit)", () =>
+{
+    var mengensatz = element60.IsDefinedBy
+        .Select(r => r.RelatingPropertyDefinition).OfType<IIfcElementQuantity>()
+        .First(q => q.Name == "Testmengen_Schritt9");
+    foreach (var menge in mengensatz.Quantities)
+    {
+        string? symbol = ErmittleEinheitenSymbol(menge, projektEinheiten);
+        Console.WriteLine($"  {menge.Name} [{menge.GetType().Name}] -> Einheitensymbol: {symbol ?? "(keins ermittelbar)"}");
+    }
+    return true;
+});
+
+// ------------------------------------------------------------------
+// Testfall B: separates Wegwerf-IFC4-Modell (nicht aus Datei, nur im
+// Speicher), um die IFC4-spezifischen Fälle zu erzwingen, die die
+// Beispieldatei nicht hergibt: eigene Unit je Mengen-Angabe, SI-Präfixe
+// Milli/Centi/Deci/Kilo, und eine echte IfcConversionBasedUnit.
+// ------------------------------------------------------------------
+using var testModell = IfcStore.Create(Xbim.Common.Step21.XbimSchemaVersion.Ifc4, Xbim.IO.XbimStoreType.InMemoryModel);
+using (var transaktion = testModell.BeginTransaction("IFC4-Testdaten Schritt 9"))
+{
+    Xbim.Ifc4.MeasureResource.IfcSIUnit SiEinheit(IfcUnitEnum typ, IfcSIPrefix? prefix, IfcSIUnitName name) =>
+        testModell.Instances.New<Xbim.Ifc4.MeasureResource.IfcSIUnit>(u =>
+        { u.UnitType = typ; u.Prefix = prefix; u.Name = name; });
+
+    var milli = testModell.Instances.New<Xbim.Ifc4.QuantityResource.IfcQuantityLength>(l =>
+    { l.Name = "Laenge_mm"; l.LengthValue = 500; l.Unit = SiEinheit(IfcUnitEnum.LENGTHUNIT, IfcSIPrefix.MILLI, IfcSIUnitName.METRE); });
+    var centi = testModell.Instances.New<Xbim.Ifc4.QuantityResource.IfcQuantityLength>(l =>
+    { l.Name = "Laenge_cm"; l.LengthValue = 50; l.Unit = SiEinheit(IfcUnitEnum.LENGTHUNIT, IfcSIPrefix.CENTI, IfcSIUnitName.METRE); });
+    var dezi = testModell.Instances.New<Xbim.Ifc4.QuantityResource.IfcQuantityLength>(l =>
+    { l.Name = "Laenge_dm"; l.LengthValue = 5; l.Unit = SiEinheit(IfcUnitEnum.LENGTHUNIT, IfcSIPrefix.DECI, IfcSIUnitName.METRE); });
+    var kilo = testModell.Instances.New<Xbim.Ifc4.QuantityResource.IfcQuantityWeight>(g =>
+    { g.Name = "Gewicht_kg"; g.WeightValue = 3; g.Unit = SiEinheit(IfcUnitEnum.MASSUNIT, IfcSIPrefix.KILO, IfcSIUnitName.GRAM); });
+
+    // Echte IfcConversionBasedUnit: Zoll, definiert über Umrechnungsfaktor
+    // auf die SI-Basiseinheit Meter.
+    //
+    // STOLPERSTELLE (echter Fund): Ohne "Dimensions" wirft xBIMs eigener
+    // Symbol-Getter auf IfcConversionBasedUnit eine rohe
+    // NullReferenceException statt einer sprechenden Fehlermeldung oder
+    // eines Fallbacks — auch wenn Dimensions in der Datei tatsächlich
+    // optional ist (IFC-Schema erlaubt $/fehlend). Erst mit gesetzten
+    // Dimensions funktioniert Symbol zuverlässig.
+    var dimensionenLaenge = testModell.Instances.New<Xbim.Ifc4.MeasureResource.IfcDimensionalExponents>(d =>
+    {
+        d.LengthExponent = 1; d.MassExponent = 0; d.TimeExponent = 0;
+        d.ElectricCurrentExponent = 0; d.ThermodynamicTemperatureExponent = 0;
+        d.AmountOfSubstanceExponent = 0; d.LuminousIntensityExponent = 0;
+    });
+    var meterAlsBasis = SiEinheit(IfcUnitEnum.LENGTHUNIT, null, IfcSIUnitName.METRE);
+    var zollFaktor = testModell.Instances.New<Xbim.Ifc4.MeasureResource.IfcMeasureWithUnit>(f =>
+    { f.ValueComponent = new Xbim.Ifc4.MeasureResource.IfcLengthMeasure(0.0254); f.UnitComponent = meterAlsBasis; });
+    var zoll = testModell.Instances.New<Xbim.Ifc4.MeasureResource.IfcConversionBasedUnit>(u =>
+    { u.UnitType = IfcUnitEnum.LENGTHUNIT; u.Name = "Zoll"; u.ConversionFactor = zollFaktor; u.Dimensions = dimensionenLaenge; });
+    var laengeZoll = testModell.Instances.New<Xbim.Ifc4.QuantityResource.IfcQuantityLength>(l =>
+    { l.Name = "Laenge_zoll"; l.LengthValue = 12; l.Unit = zoll; });
+
+    transaktion.Commit();
+
+    Messen("9b. GetQuantityUnitSymbol (IFC4, eigene Unit je Menge)", () =>
+    {
+        foreach (var menge in new IIfcPhysicalQuantity[] { milli, centi, dezi, kilo, laengeZoll })
+        {
+            string? symbol = ErmittleEinheitenSymbol(menge, projektEinheiten: null);
+            Console.WriteLine($"  {menge.Name,-14} -> Einheitensymbol: {symbol ?? "(keins ermittelbar)"}");
+        }
+        return true;
+    });
+}
+
 modell.Dispose();
+
+// ----------------------------------------------------------------------
+// Schritt-9-Kernlogik: löst das Einheitensymbol einer Mengen-Angabe auf.
+// 1. Eigene Unit? Nur IFC4-Quantities haben dieses Attribut, das
+//    gemeinsame Cross-Schema-Interface kennt es nicht -> "dynamic" als
+//    bewusster Kompromiss, um ohne Schema-Fallunterscheidung sowohl
+//    IFC2X3 (kein Unit-Attribut, RuntimeBinderException) als auch IFC4
+//    (Unit vorhanden, ggf. null) zu bedienen.
+// 2. Sonst: passende Einheit aus der Projekt-IfcUnitAssignment suchen,
+//    gematcht über IfcUnitEnum (LENGTHUNIT, AREAUNIT, MASSUNIT, ...),
+//    das aus dem konkreten Mengen-Typ abgeleitet wird.
+// ----------------------------------------------------------------------
+static string? ErmittleEinheitenSymbol(IIfcPhysicalQuantity menge, IIfcUnitAssignment? projektEinheiten)
+{
+    IIfcNamedUnit? eigeneUnit = null;
+    try
+    {
+        dynamic dyn = menge;
+        eigeneUnit = dyn.Unit as IIfcNamedUnit;
+    }
+    catch (Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
+    {
+        // Schema hat kein Unit-Attribut auf dieser Quantity (IFC2X3) — erwartet.
+    }
+
+    if (eigeneUnit is not null)
+        return eigeneUnit.Symbol;
+
+    if (projektEinheiten is null)
+        return null;
+
+    IfcUnitEnum? gesuchterTyp = menge switch
+    {
+        IIfcQuantityLength => IfcUnitEnum.LENGTHUNIT,
+        IIfcQuantityArea => IfcUnitEnum.AREAUNIT,
+        IIfcQuantityVolume => IfcUnitEnum.VOLUMEUNIT,
+        IIfcQuantityWeight => IfcUnitEnum.MASSUNIT,
+        IIfcQuantityCount => null,
+        IIfcQuantityTime => IfcUnitEnum.TIMEUNIT,
+        _ => null
+    };
+    if (gesuchterTyp is null) return null;
+
+    return projektEinheiten.Units.OfType<IIfcNamedUnit>()
+        .FirstOrDefault(u => u.UnitType == gesuchterTyp)?.Symbol;
+}
 
 // ----------------------------------------------------------------------
 // Hilfsfunktion: führt einen Schritt aus, misst Laufzeit und
