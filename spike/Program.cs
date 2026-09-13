@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Xbim.Common;
 using Xbim.Ifc;
 
 // ============================================================================
@@ -24,6 +25,24 @@ if (modell is null)
 
 Console.WriteLine($"Erfolg: Datei geöffnet.");
 Console.WriteLine($"  Schema (SchemaVersion) : {modell.SchemaVersion}");
+
+Console.WriteLine();
+Console.WriteLine("=== Schritt 2 — GetElementsByType(\"IfcProduct\") inkl. Klassenhierarchie ===");
+
+// xBIM bietet für "nach Klasse abfragen, inkl. Unterklassen" die
+// IEntityCollection.OfType(string, bool)-Methode: Der String ist der
+// EXPRESS-Typname (Groß-/Kleinschreibung egal), der bool-Parameter
+// steuert, ob referenzierte, aber noch nicht geladene Entities beim
+// Zugriff aktiviert werden (bei einem komplett im Speicher gehaltenen
+// Modell ohne Bedeutung, wird trotzdem als "true" mitgegeben).
+// Die Unterklassen-Auflösung übernimmt xBIM selbst über die
+// EXPRESS-Metadaten des jeweiligen Schemas (IFC2X3 oder IFC4).
+foreach (var klasse in new[] { "IfcProduct", "IfcObject", "IfcBuildingElement", "IfcWall" })
+{
+    var elemente = Messen($"2. GetElementsByType(\"{klasse}\")",
+        () => modell.Instances.OfType(klasse, activate: true).ToList());
+    Console.WriteLine($"  Treffer: {elemente?.Count ?? 0}");
+}
 
 modell.Dispose();
 
