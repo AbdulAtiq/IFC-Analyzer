@@ -204,6 +204,49 @@ Messen("7. GetOwnerInfo()", () =>
     return (ersteller, software);
 });
 
+Console.WriteLine();
+Console.WriteLine("=== Schritt 8 — GetProjectUnits() aus IfcUnitAssignment ===");
+
+// Überraschung (positiv): xBIM löst Präfixe bereits selbst auf.
+// IIfcNamedUnit.Symbol ist eine BERECHNETE Eigenschaft der Bibliothek
+// selbst (kein STEP-Attribut!) und liefert z. B. "kg" für
+// Prefix=KILO + Name=GRAM, oder "m" für Prefix=null + Name=METRE.
+// Das ist exakt die Präfix-Auflösung, die für Schritt 9 gebraucht wird.
+Messen("8. GetProjectUnits()", () =>
+{
+    var zuweisung = modell.Instances.OfType<IIfcUnitAssignment>().FirstOrDefault();
+    var ergebnis = new Dictionary<string, string>();
+    if (zuweisung is null)
+    {
+        Console.WriteLine("  Keine IfcUnitAssignment im Modell.");
+        return ergebnis;
+    }
+
+    foreach (var einheit in zuweisung.Units)
+    {
+        string schluessel;
+        string symbol;
+        switch (einheit)
+        {
+            case IIfcNamedUnit benannt:
+                schluessel = benannt.UnitType.ToString();
+                symbol = benannt.Symbol;
+                break;
+            case IIfcMonetaryUnit geld:
+                schluessel = "MONETARYUNIT";
+                symbol = geld.Currency.ToString();
+                break;
+            default:
+                schluessel = einheit.GetType().Name;
+                symbol = einheit.FullName;
+                break;
+        }
+        ergebnis[schluessel] = symbol;
+        Console.WriteLine($"  {schluessel,-16} -> \"{symbol}\"  ({einheit.GetType().Name})");
+    }
+    return ergebnis;
+});
+
 modell.Dispose();
 
 // ----------------------------------------------------------------------
