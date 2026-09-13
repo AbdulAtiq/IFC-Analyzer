@@ -394,6 +394,51 @@ Messen("10. SetProperty (PVI_SCHICHTSTAERKE = 3.5)", () =>
 
 Console.WriteLine($"  Nachher: {eigenschaft.Name} = {eigenschaft.NominalValue?.Value} [{eigenschaft.NominalValue?.GetType().Name}]");
 
+Console.WriteLine();
+Console.WriteLine("=== Schritt 11 — AddPropertySet(element, name): fehlendes P-Set neu anlegen ===");
+Console.WriteLine("Erwartete erste echte Stolperstelle laut Aufgabenstellung. Ergebnis:");
+
+// Vorab-Test (siehe Commit-Historie): Instances.New<T>() für ein
+// IfcRoot-Derivat wie IfcPropertySet erledigt GlobalId UND OwnerHistory
+// automatisch:
+//  - GlobalId: xBIM generiert selbst eine neue, zufällige IfcGloballyUniqueId.
+//  - OwnerHistory: xBIM legt beim ERSTEN Schreibzugriff auf dieses Modell
+//    EINE neue IfcOwnerHistory an ("diese Bearbeitungssitzung") und
+//    verwendet sie für alle weiteren neuen Entities wieder — keine
+//    Duplikate pro Transaktion, aber auch keine Wiederverwendung der
+//    ursprünglichen IfcOwnerHistory (#7) aus der Originaldatei.
+// Trotzdem bleiben ES MEHRERE SCHRITTE, wie in der Aufgabenstellung
+// angekündigt: PropertySet anlegen, Name setzen, UND separat die
+// Relationship IfcRelDefinesByProperties anlegen und beides verknüpfen —
+// kein Einzeiler wie ifcopenshells pset.add_pset().
+Messen("11. AddPropertySet(element #60, \"QS_Pruefung\")", () =>
+{
+    using var transaktion = modell.BeginTransaction("Schritt 11: AddPropertySet");
+
+    var neuesPset = modell.Instances.New<Xbim.Ifc2x3.Kernel.IfcPropertySet>(p =>
+    {
+        p.Name = "QS_Pruefung";
+    });
+    modell.Instances.New<Xbim.Ifc2x3.Kernel.IfcRelDefinesByProperties>(rel =>
+    {
+        rel.RelatingPropertyDefinition = neuesPset;
+        rel.RelatedObjects.Add((Xbim.Ifc2x3.Kernel.IfcObject)element60);
+    });
+
+    transaktion.Commit();
+    return neuesPset;
+});
+
+// Verifikation: von der anderen Seite aus (über das Element) nachlesen,
+// nicht nur die lokale Referenz zurückgeben — das ist der eigentliche
+// Beweis, dass die Relationship korrekt verknüpft wurde.
+var geprueft = element60.IsDefinedBy
+    .Select(r => r.RelatingPropertyDefinition).OfType<IIfcPropertySet>()
+    .FirstOrDefault(p => p.Name == "QS_Pruefung");
+Console.WriteLine(geprueft is not null
+    ? $"  Erfolg: PSet \"{geprueft.Name}\" (#{geprueft.EntityLabel}, GlobalId={((IIfcRoot)geprueft).GlobalId}) ist jetzt über IsDefinedBy am Element auffindbar."
+    : "  FEHLSCHLAG: PSet nicht über das Element auffindbar.");
+
 modell.Dispose();
 
 // ----------------------------------------------------------------------
