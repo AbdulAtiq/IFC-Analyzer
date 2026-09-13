@@ -157,6 +157,22 @@ Console.WriteLine("  (Einheitensymbol von Mengen) erneut relevant — dort baue 
 Console.WriteLine("  angekündigt, eine IfcElementQuantity per xBIM-API synthetisch nach,");
 Console.WriteLine("  um den Lesepfad trotzdem an echtem xBIM-Verhalten zu zeigen.");
 
+Console.WriteLine();
+Console.WriteLine("=== Schritt 6 — GetAllPropertySets(): alle P-Sets ohne Umweg über Elemente ===");
+
+// Direkter Weg, ohne über IsDefinedBy und die Elemente zu gehen: xBIM
+// führt für jeden EXPRESS-Typ intern eine Typtabelle, genau wie in
+// Schritt 2 genutzt — nur diesmal auf IIfcPropertySet direkt.
+var allePropertySets = Messen("6. GetAllPropertySets()",
+    () => modell.Instances.OfType<IIfcPropertySet>().ToList());
+
+Console.WriteLine($"  Treffer: {allePropertySets?.Count ?? 0} IfcPropertySet-Entities im gesamten Modell.");
+Console.WriteLine($"  Zum Vergleich Schritt 5 (nur über die 6 Elemente): 24 PropertySets.");
+Console.WriteLine($"  Differenz ({(allePropertySets?.Count ?? 0) - 24}) = P-Sets, die NICHT an einem der");
+Console.WriteLine($"  6 IfcBuildingElement hängen, sondern z. B. am IfcProject");
+Console.WriteLine($"  (ePSet_ProjectedCRS, ePSet_MapConversion) — genau der Fall, für den");
+Console.WriteLine($"  GetAllPropertySets() laut Abstraktion existiert.");
+
 modell.Dispose();
 
 // ----------------------------------------------------------------------
