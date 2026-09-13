@@ -439,6 +439,79 @@ Console.WriteLine(geprueft is not null
     ? $"  Erfolg: PSet \"{geprueft.Name}\" (#{geprueft.EntityLabel}, GlobalId={((IIfcRoot)geprueft).GlobalId}) ist jetzt über IsDefinedBy am Element auffindbar."
     : "  FEHLSCHLAG: PSet nicht über das Element auffindbar.");
 
+Console.WriteLine();
+Console.WriteLine("=== Schritt 12 — RemoveProperty und RemovePropertySet ===");
+
+// Erst ein Attribut ins neue PSet legen, damit es überhaupt etwas zu
+// entfernen gibt.
+using (var transaktion = modell.BeginTransaction("Schritt 12: Testattribut anlegen"))
+{
+    var testEigenschaft = modell.Instances.New<Xbim.Ifc2x3.PropertyResource.IfcPropertySingleValue>(v =>
+    {
+        v.Name = "Status";
+        v.NominalValue = new Xbim.Ifc2x3.MeasureResource.IfcLabel("geplant");
+    });
+    geprueft!.HasProperties.Add(testEigenschaft);
+    transaktion.Commit();
+}
+Console.WriteLine($"  Vorbereitung: \"{geprueft!.Name}\" hat jetzt {geprueft.HasProperties.Count} Attribut(e).");
+
+// ------------------------------------------------------------------
+// RemoveProperty: model.Delete(entity) statt manuellem Collection.Remove.
+// FUND (vorab getestet, siehe Commit-Historie): model.Delete() räumt
+// automatisch ALLE Rückverweise auf — pset.HasProperties.Remove() ist
+// dafür NICHT nötig, xBIM erledigt es selbst. Deutlich weniger Aufwand
+// als von der Aufgabenstellung ("dreistufige Fallback-Kette") befürchtet.
+// ------------------------------------------------------------------
+bool RemoveProperty(IIfcPropertySet pset, string propertyName)
+{
+    var eigenschaft = pset.HasProperties.FirstOrDefault(p => p.Name == propertyName);
+    if (eigenschaft is null) return false;
+    using var transaktion = modell.BeginTransaction($"RemoveProperty({propertyName})");
+    modell.Delete(eigenschaft);
+    transaktion.Commit();
+    return true;
+}
+
+bool entfernt = Messen("12a. RemoveProperty(\"Status\")", () => RemoveProperty(geprueft, "Status"));
+Console.WriteLine($"  Ergebnis: {entfernt}, verbleibende Attribute: {geprueft.HasProperties.Count}");
+
+bool nichtVorhanden = Messen("12a. RemoveProperty(\"GibtEsNicht\")", () => RemoveProperty(geprueft, "GibtEsNicht"));
+Console.WriteLine($"  Ergebnis (nicht vorhanden, erwartet false): {nichtVorhanden}");
+
+// ------------------------------------------------------------------
+// RemovePropertySet: HIER liegt die eigentliche Stolperstelle.
+//
+// FUND (echt, vorab getestet — siehe Commit-Historie): Wird NUR das
+// IfcPropertySet gelöscht (model.Delete(pset)), räumt xBIM zwar die
+// direkte Referenz auf (rel.RelatingPropertyDefinition wird null), LÄSST
+// ABER die IfcRelDefinesByProperties-Relationship selbst im Modell
+// zurück — mit einem jetzt UNGÜLTIGEN, weil laut Schema PFLICHT-Attribut
+// RelatingPropertyDefinition = $. Eine so gespeicherte Datei wäre
+// schema-ungültig. model.Delete() räumt also Rückverweise INNERHALB
+// verbleibender Entities auf, aber löscht keine Entities, die dadurch
+// bedeutungslos werden — das muss die Implementierung selbst tun.
+// ------------------------------------------------------------------
+bool RemovePropertySet(IIfcElement element, IIfcPropertySet pset)
+{
+    var rel = element.IsDefinedBy.FirstOrDefault(r => r.RelatingPropertyDefinition == pset);
+    if (rel is null) return false;
+
+    using var transaktion = modell.BeginTransaction("RemovePropertySet");
+    if (rel.RelatedObjects.Count <= 1)
+        modell.Delete(rel); // sonst bliebe eine Relationship mit 0 RelatedObjects zurück (auch ungültig)
+    else
+        rel.RelatedObjects.Remove((Xbim.Ifc2x3.Kernel.IfcObject)element); // PSet an andere Elemente noch verwendet
+    modell.Delete(pset);
+    transaktion.Commit();
+    return true;
+}
+
+bool psetEntfernt = Messen("12b. RemovePropertySet(element #60, \"QS_Pruefung\")",
+    () => RemovePropertySet(element60, geprueft));
+bool nochDefiniert = element60.IsDefinedBy.Any(r => r.RelatingPropertyDefinition is IIfcPropertySet p && p.Name == "QS_Pruefung");
+Console.WriteLine($"  Ergebnis: {psetEntfernt}, PSet am Element noch vorhanden? {nochDefiniert} (erwartet: false)");
+
 modell.Dispose();
 
 // ----------------------------------------------------------------------
