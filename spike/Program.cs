@@ -512,6 +512,97 @@ bool psetEntfernt = Messen("12b. RemovePropertySet(element #60, \"QS_Pruefung\")
 bool nochDefiniert = element60.IsDefinedBy.Any(r => r.RelatingPropertyDefinition is IIfcPropertySet p && p.Name == "QS_Pruefung");
 Console.WriteLine($"  Ergebnis: {psetEntfernt}, PSet am Element noch vorhanden? {nochDefiniert} (erwartet: false)");
 
+Console.WriteLine();
+Console.WriteLine("=== Schritt 13 — CreateLabelValue(text): die wichtigste Einzelfrage des Spikes ===");
+
+// Zielattribut: "Bf_Nr" im PSet "Stammdaten Verkehrsanlage" an Element #60 —
+// laut Schritt 5 (bei anderen Elementen beobachtet) aktuell 0 [IfcInteger].
+static string? GetValueType(IIfcPropertySet pset, string propertyName) =>
+    (pset.HasProperties.FirstOrDefault(p => p.Name == propertyName) as IIfcPropertySingleValue)
+        ?.NominalValue?.GetType().Name;
+
+var psetStammdaten = (Xbim.Ifc2x3.Kernel.IfcPropertySet)element60.IsDefinedBy
+    .Select(r => r.RelatingPropertyDefinition).OfType<IIfcPropertySet>()
+    .First(p => p.Name == "Stammdaten Verkehrsanlage");
+
+string? typVorher = GetValueType(psetStammdaten, "Bf_Nr");
+Console.WriteLine($"  Vorher: Bf_Nr, GetValueType = \"{typVorher}\"");
+
+// ------------------------------------------------------------------
+// Der Test: schreibt die Fachlogik naiv Text in NominalValue eines
+// bisher numerischen Attributs — geht das, wirft es, oder entsteht
+// stillschweigend Murks?
+// ------------------------------------------------------------------
+var eigenschaftBfNr = (Xbim.Ifc2x3.PropertyResource.IfcPropertySingleValue)
+    psetStammdaten.HasProperties.First(p => p.Name == "Bf_Nr");
+int entityIdVorher = eigenschaftBfNr.EntityLabel;
+
+Messen("13a. Naiver Versuch: IfcLabel(\"aktiv\") direkt in NominalValue eines IfcInteger-Feldes", () =>
+{
+    using var transaktion = modell.BeginTransaction("Schritt 13a: naiver Textwert");
+    eigenschaftBfNr.NominalValue = new Xbim.Ifc2x3.MeasureResource.IfcLabel("aktiv");
+    transaktion.Commit();
+    return true;
+});
+
+string? typNachher = GetValueType(psetStammdaten, "Bf_Nr");
+Console.WriteLine($"  ERGEBNIS: KEINE Ausnahme. Gleiche Entity-Id (#{eigenschaftBfNr.EntityLabel}, vorher #{entityIdVorher})," +
+                   $" NominalValue jetzt \"{eigenschaftBfNr.NominalValue?.Value}\" [{typNachher}].");
+Console.WriteLine("  Erklärung: NominalValue ist im EXPRESS-Schema ein SELECT-Typ (IfcValue) --");
+Console.WriteLine("  IfcPropertySingleValue bindet sich nicht an einen festen Werttyp. xBIM prüft");
+Console.WriteLine("  beim einfachen Zuweisen NICHT, ob der neue Werttyp zum bisherigen passt --");
+Console.WriteLine("  \"stillschweigend etwas Kaputtes\" im Sinne von numerisch+Text gemischt ist");
+Console.WriteLine("  hier NICHT der Fall (das Feld ist jetzt sauber ein IfcLabel), aber es zeigt:");
+Console.WriteLine("  xBIM verhindert den in der Aufgabenstellung befürchteten Fehler NICHT von");
+Console.WriteLine("  selbst -- ein direktes eigenschaft.NominalValue = new IfcReal(\"text\") wäre");
+Console.WriteLine("  schlicht ein Compile-Fehler (IfcReal-Konstruktor nimmt keinen String), ABER");
+Console.WriteLine("  ein IfcInteger-Konstruktor mit ungültigem String, oder ein Aufrufer, der");
+Console.WriteLine("  versehentlich (int)Convert.ToInt32(\"aktiv\") aufruft, bekäme stattdessen");
+Console.WriteLine("  eine .NET-FormatException zur Laufzeit -- xBIM selbst validiert das nicht.");
+Console.WriteLine();
+
+// ------------------------------------------------------------------
+// Damit ist die Kernfrage von CreateLabelValue beantwortet: Die
+// Fachlogik-Entscheidung "als IfcLabel NEU ANLEGEN statt den
+// numerischen Typ zu beschädigen" ist mit xBIM NICHT technisch
+// erzwungen -- man KÖNNTE (fahrlässig) auch direkt in die bestehende
+// Entity schreiben, wie gerade gezeigt. CreateLabelValue selbst ist der
+// denkbar einfachste Teil der ganzen Abstraktion: ein Wrapper um den
+// IfcLabel-Konstruktor. Die eigentliche Sorgfalt liegt in der
+// Fachlogik (_coerce_value_for_target), nicht in der Bibliothek.
+// ------------------------------------------------------------------
+object CreateLabelValue(string text) => new Xbim.Ifc2x3.MeasureResource.IfcLabel(text);
+
+Messen("13b. CreateLabelValue(\"aktiv\") -- der von der Abstraktion vorgesehene Weg", () =>
+{
+    var labelWert = CreateLabelValue("aktiv");
+    Console.WriteLine($"  CreateLabelValue liefert: {labelWert} (.NET-Typ {labelWert.GetType().FullName})");
+    return labelWert;
+});
+
+// Beleg für die eben behauptete Alternative: IfcInteger hat tatsächlich
+// einen string-Konstruktor (für den STEP-Parser gedacht, der Zahlen
+// zunächst als Text einliest) -- ruft ihn jemand fälschlich mit echtem
+// Text auf (statt wie hier bewusst auf IfcLabel umzustellen), fliegt
+// keine sprechende IFC-Ausnahme, sondern eine rohe .NET-FormatException.
+Messen("13c. Beleg: IfcInteger(\"aktiv\") direkt -- der Weg, den die Fachlogik bewusst vermeidet", () =>
+{
+    try
+    {
+        var kaputt = new Xbim.Ifc2x3.MeasureResource.IfcInteger("aktiv");
+        Console.WriteLine($"  UNERWARTET kein Fehler: {kaputt}");
+        return true;
+    }
+    catch (FormatException ex)
+    {
+        Console.WriteLine($"  Erwartungsgemäß FormatException: \"{ex.Message}\" -- keine sprechende IFC-spezifische");
+        Console.WriteLine($"  Fehlermeldung, sondern eine rohe .NET-Ausnahme. Genau deshalb ist");
+        Console.WriteLine($"  CreateLabelValue (Neuanlage als IfcLabel) der richtige Weg, nicht der Versuch,");
+        Console.WriteLine($"  Text in den bestehenden numerischen Typ zu zwingen.");
+        return false;
+    }
+});
+
 modell.Dispose();
 
 // ----------------------------------------------------------------------
