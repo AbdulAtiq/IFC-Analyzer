@@ -603,7 +603,40 @@ Messen("13c. Beleg: IfcInteger(\"aktiv\") direkt -- der Weg, den die Fachlogik b
     }
 });
 
+Console.WriteLine();
+Console.WriteLine("=== Schritt 14 — Save(pfad): Modell speichern ===");
+
+var ausgabePfad = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "data", "ausgabe.ifc");
+ausgabePfad = Path.GetFullPath(ausgabePfad);
+
+Messen("14. Save(pfad)", () =>
+{
+    modell.SaveAs(ausgabePfad, Xbim.IO.StorageType.Ifc);
+    return true;
+});
+
+var groesse = new FileInfo(ausgabePfad).Length;
+Console.WriteLine($"  Gespeichert nach: {ausgabePfad}");
+Console.WriteLine($"  Dateigröße: {groesse / 1024.0:F1} KB (Original: {new FileInfo(ifcPfad).Length / 1024.0:F1} KB)");
+
 modell.Dispose();
+
+// Gegenprobe: lässt sich die geschriebene Datei mit xBIM selbst wieder
+// öffnen und enthält sie die vorgenommenen Änderungen? (Beweist noch
+// NICHT, dass die Datei auch für ANDERE Werkzeuge gültig ist -- dafür
+// siehe Hinweis zur externen Validierung weiter unten.)
+Messen("14b. Gegenprobe: Ausgabedatei mit xBIM erneut öffnen", () =>
+{
+    using var kontrolle = IfcStore.Open(ausgabePfad);
+    var kontrollElement = kontrolle.Instances.OfType<IIfcBuildingElement>().First(e => e.EntityLabel == 60);
+    var kontrollPset = kontrollElement.IsDefinedBy
+        .Select(r => r.RelatingPropertyDefinition).OfType<IIfcPropertySet>()
+        .First(p => p.Name == "Stammdaten Verkehrsanlage");
+    var kontrollWert = kontrollPset.HasProperties.OfType<IIfcPropertySingleValue>().First(p => p.Name == "Bf_Nr");
+    Console.WriteLine($"  Bf_Nr nach erneutem Öffnen: \"{kontrollWert.NominalValue?.Value}\" [{kontrollWert.NominalValue?.GetType().Name}]");
+    Console.WriteLine($"  (erwartet: \"aktiv\" [IfcLabel] -- die Schritt-13-Änderung ist persistiert)");
+    return true;
+});
 
 // ----------------------------------------------------------------------
 // Schritt-9-Kernlogik: löst das Einheitensymbol einer Mengen-Angabe auf.
